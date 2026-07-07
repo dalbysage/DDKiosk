@@ -1,16 +1,30 @@
 # Set Up Logging
 import logging
 import logging.handlers
-logger=logging.getLogger("Kiosk")
+import json
+import datetime
+
+class JSONFormatter(logging.Formatter):
+    def format(self, record):
+        log_record = {
+            "timestamp": datetime.datetime.fromtimestamp(record.created).strftime("%Y-%m-%dT%H:%M:%S.%f"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "line": record.lineno
+        }
+        # include exception info if present
+        if record.exc_info:
+            log_record["exception"] = self.formatException(record.exc_info)
+        return json.dumps(log_record)
+
+
 ##################################
 # Log Level
 ##################################
+logger=logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
-log_formatter = logging.Formatter(
-    "%(asctime)s %(levelname)s %(name)s %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S"
-)
 
 # handler 1 - local file
 log_handler = logging.handlers.RotatingFileHandler(
@@ -18,11 +32,11 @@ log_handler = logging.handlers.RotatingFileHandler(
     maxBytes=10_000_000,  # 10MB
     backupCount=5
 )
-log_handler.setFormatter(log_formatter)
+log_handler.setFormatter(JSONFormatter())
 
 # handler 2 - syslog
 syslog_handler = logging.handlers.SysLogHandler(address="/dev/log")
-syslog_handler.setFormatter(log_formatter)
+syslog_handler.setFormatter(JSONFormatter())
 
 logger.addHandler(log_handler)
 logger.addHandler(syslog_handler)
