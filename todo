@@ -1,4 +1,4 @@
-create RESTful authentication request
+gracefully handle exceptions to keep kiosk running
 user interface
 open gate
 

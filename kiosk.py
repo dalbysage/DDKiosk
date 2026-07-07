@@ -44,7 +44,8 @@ logger.addHandler(syslog_handler)
 ##################################
 # Parse Config File
 ##################################
-logger.debug({'Status': "Parse Config File"})
+logger.info({'Status': "Parse Config File"})
+
 from pathlib import Path
 import sys
 config_file = Path(__file__).parent / "kiosk.cfg"
@@ -68,7 +69,20 @@ except KeyError as e:
     logger.critical(f"Missing required config key: {e}")
     sys.exit(1)
 
-logger.debug({"config_file": f"{config_file}"})
-logger.debug({'URL':url})
+##################################
+# Authenticate
+##################################
+logger.info({'Status': "Authenticate"})
 
+import requests
+try:
+    resp = requests.post(url, json={"phone": "7191112222", "password": "secret"})
+except requests.exceptions.ConnectionError as e:
+    logger.error({"error":"Cannot connect to authetication server", "url":url})
+    sys.exit(1)
+
+
+token = resp.json()["token"]
+
+logger.debug({"AuthenticationCode":resp.status_code})
 
