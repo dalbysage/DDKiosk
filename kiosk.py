@@ -75,14 +75,27 @@ except KeyError as e:
 logger.info({'Status': "Authenticate"})
 
 import requests
+import RPi.GPIO as GPIO
+import time
+
+io = 37
+
+GPIO.setmode(GPIO.BOARD)
+GPIO.setup(io, GPIO.OUT)
+GPIO.output(io, True)
+
 try:
     resp = requests.post(url, json={"phone": "7191112222", "password": "secret"})
 except requests.exceptions.ConnectionError as e:
     logger.error({"error":"Cannot connect to authetication server", "url":url})
     sys.exit(1)
 
-
+logger.debug({"AuthenticationCode":resp.status_code})
+if 200 == resp.status_code:
+    GPIO.output(io, False)
+    time.sleep(2)
+    GPIO.output(io, True)
+    
 token = resp.json()["token"]
 
-logger.debug({"AuthenticationCode":resp.status_code})
 
