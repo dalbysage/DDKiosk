@@ -23,7 +23,7 @@ class JSONFormatter(logging.Formatter):
 ##################################
 # Log Level
 ##################################
-logger=logging.getLogger(__name__)
+logger=logging.getLogger("Kiosk")
 logger.setLevel(logging.DEBUG)
 
 # handler 1 - local file
@@ -40,4 +40,35 @@ syslog_handler.setFormatter(JSONFormatter())
 
 logger.addHandler(log_handler)
 logger.addHandler(syslog_handler)
+
+##################################
+# Parse Config File
+##################################
+logger.debug({'Status': "Parse Config File"})
+from pathlib import Path
+import sys
+config_file = Path(__file__).parent / "kiosk.cfg"
+
+try:
+    with open(config_file) as f:
+        cfg = json.load(f)
+except FileNotFoundError:
+    logger.critical(f"Config file not found: {config_file}")
+    sys.exit(1)
+except PermissionError:
+    logger.critical(f"Permission denied reading config file: {config_file}")
+    sys.exit(1)
+except json.JSONDecodeError as e:
+    logger.critical(f"Config file is corrupt or invalid JSON: {config_file} — {e}")
+    sys.exit(1)
+
+try:
+    url = cfg["url"]
+except KeyError as e:
+    logger.critical(f"Missing required config key: {e}")
+    sys.exit(1)
+
+logger.debug({"config_file": f"{config_file}"})
+logger.debug({'URL':url})
+
 
