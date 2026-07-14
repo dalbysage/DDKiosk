@@ -1,5 +1,4 @@
+lockdown kiosk
 gracefully handle exceptions to keep kiosk running
 user interface
-open gate
-
-
+Add Stepper Code
