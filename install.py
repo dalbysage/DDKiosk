@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import sys
+import re
 import pwd
 import grp
 import shutil
@@ -10,6 +11,61 @@ TARGET_USER = "kiosk"
 TARGET_GROUP = "gpio"
 LOG_DIR = "/var/log/kiosk/"
 HOME_DIR = f"/home/{TARGET_USER}/"
+CONFIG_PATH = "/boot/firmware/config.txt"
+
+CONFIG_TARGETS = [
+    {"pattern": r"\bdtoverlay\s*=\s*disable-wifi", "exact_line": "dtoverlay=disable-wifi"},
+    {"pattern": r"\bdtoverlay\s*=\s*disable-bt",   "exact_line": "dtoverlay=disable-bt"},
+]
+
+def configure_hardware():
+    """Idempotently updates /boot/firmware/config.txt using regular expressions."""
+    print("--- Configuring Hardware Settings (config.txt) ---")
+
+    if not os.path.exists(CONFIG_PATH):
+        print(f"Error: {CONFIG_PATH} not found.")
+        sys.exit(1)
+
+    with open(CONFIG_PATH, "r") as f:
+        lines = f.read().splitlines()
+
+    modified = False
+    new_lines = []
+    resolved_targets = {t["exact_line"]: False for t in CONFIG_TARGETS}
+
+    for line in lines:
+        matched_any_target = False
+
+        for target in CONFIG_TARGETS:
+            regex = rf"^\s*#*\s*{target['pattern']}\s*$"
+            if re.match(regex, line):
+                if line.strip() == target["exact_line"]:
+                    new_lines.append(line)
+                else:
+                    new_lines.append(target["exact_line"])
+                    print(f"Corrected/Uncommented: {target['exact_line']}")
+                    modified = True
+
+                resolved_targets[target["exact_line"]] = True
+                matched_any_target = True
+                break
+
+        if not matched_any_target:
+            new_lines.append(line)
+
+    for target in CONFIG_TARGETS:
+        if not resolved_targets[target["exact_line"]]:
+            new_lines.append(target["exact_line"])
+            print(f"Appended missing configuration: {target['exact_line']}")
+            modified = True
+
+    if modified:
+        shutil.copy2(CONFIG_PATH, f"{CONFIG_PATH}.bak")
+        with open(CONFIG_PATH, "w") as f:
+            f.write("\n".join(new_lines) + "\n")
+        print("Successfully updated config.txt.")
+    else:
+        print("Idempotency Check: config.txt configurations are already perfectly set.")
 
 # Files to copy into the kiosk home directory
 FILES_TO_DEPLOY = ["kiosk.py", "kiosk.cfg"]
@@ -73,6 +129,7 @@ if __name__ == "__main__":
         print("Error: This installer must be run with root privileges (sudo).")
         sys.exit(1)
 
+    configure_hardware()
     setup_environment()
     deploy_application_files()
     
