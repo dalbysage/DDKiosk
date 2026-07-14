@@ -1,19 +1,26 @@
 from tkinter import *
 
-# Window
-tkWindow = Tk()
-tkWindow.title('Gate Access')
-width = tkWindow.winfo_screenwidth()
-height = tkWindow.winfo_screenheight()
-tkWindow.geometry(f"{width}x{height}")
+class KioskApp:
+    def __init__(self, tkWindow: Tk):
+        self.tkWindow = tkWindow
+        tkWindow.title('Gate Access')
+        width = tkWindow.winfo_screenwidth()
+        height = tkWindow.winfo_screenheight()
+        tkWindow.geometry(f"{width}x{height}")
 
-# Feedback
-strFeedback = 'Please Enter your phone number:'
-lblFeedback = Label(tkWindow, text = strFeedback)
-lblFeedback.grid()
+        # Feedback
+        strFeedback = 'Please Enter your phone number:'
+        lblFeedback = Label(tkWindow, text = strFeedback)
+        lblFeedback.grid()
 
-#Button
-button = Button(tkWindow, text="Close Window", command=tkWindow.destroy) 
-button.grid()
+        #Button
+        button = Button(tkWindow, text="Close Window", command=tkWindow.destroy) 
+        button.grid()
 
-tkWindow.mainloop()
+######################################
+# Main Loop
+######################################
+if __name__ == "__main__":
+    tkWindow = Tk()
+    app = KioskApp(tkWindow)
+    tkWindow.mainloop()
