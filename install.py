@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
+import re
 import os
 import sys
-import re
 import pwd
 import grp
 import shutil
@@ -9,6 +9,12 @@ import subprocess
 
 CONFIG_PATH = "/boot/firmware/config.txt"
 CMDLINE_PATH = "/boot/firmware/cmdline.txt"
+KANSHI_DIR = "/etc/xdg/kanshi"
+KANSHI_PATH = "/etc/xdg/kanshi/config"
+AUTOSTART_DIR = "/etc/xdg/labwc"
+AUTOSTART_PATH = "/etc/xdg/labwc/autostart"
+AUTOLOGIN_PATH = "/etc/lightdm/lightdm.conf"
+
 TARGET_USER = "kiosk"
 TARGET_GROUP = "gpio"
 LOG_DIR = "/var/log/kiosk/"
@@ -23,7 +29,7 @@ CONFIG_TARGETS = [
 ]
 
 # Boot arguments for cmdline.txt (Single-Line Space Separated Structure)
-SPLASH_SUPPRESSION_ARGS = [
+CMDLINE_ARGS = [
     "quiet",
     "nosplash",
     "loglevel=3",                  # Mutes non-critical kernel logs
@@ -31,8 +37,27 @@ SPLASH_SUPPRESSION_ARGS = [
     "vt.global_cursor_default=0"   # Disables blinking terminal cursor block
 ]
 
+# Kanshi content
+KANSHI_CONTENT = """profile {
+    output DSI-2 transform 90
+}
+"""
+
+# Autostart script lines
+AUTOSTART_LINES = [
+    "/usr/bin/lwrespawn /usr/bin/pcmanfm-pi &\n",
+    "/usr/bin/lwrespawn /usr/bin/wf-panel-pi &\n",
+    "/usr/bin/kanshi &\n",
+    "sleep 2\n",
+    "/usr/bin/python3 /home/kiosk/kiosk.py &\n"
+]
+
+AUTOLOGIN_TARGETS = [
+    {"pattern": rf"\bautologin-user\s*=\s*{TARGET_USER}", "exact_line": f"autologin-user={TARGET_USER}"}
+]
+
 # Files to copy into the kiosk home directory
-FILES_TO_DEPLOY = ["kiosk.py", "kiosk.cfg"]
+FILES_TO_DEPLOY = ["kiosk.py", "kiosk.cfg", "ui.py"] # TODO: remove ui.py after merge
 
 
 def configure_hardware():
@@ -85,9 +110,9 @@ def configure_hardware():
         print("Idempotency Check: config.txt configurations are already perfectly set.")
 
 
-def configure_boot_splash():
+def configure_boot():
     """Idempotently updates /boot/firmware/cmdline.txt (Single-Line Format)."""
-    print("\n--- Configuring Splash Suppression (cmdline.txt) ---")
+    print("\n--- Configuring cmdline.txt ---")
 
     if not os.path.exists(CMDLINE_PATH):
         print(f"Error: {CMDLINE_PATH} not found.")
@@ -99,7 +124,7 @@ def configure_boot_splash():
     current_args = raw_content.split()
     modified = False
 
-    for arg in SPLASH_SUPPRESSION_ARGS:
+    for arg in CMDLINE_ARGS:
         if arg not in current_args:
             
             # Wipe older loglevels to avoid duplication bugs
@@ -121,6 +146,83 @@ def configure_boot_splash():
 
     print("Disabling Plymouth graphical splash loader system...")
     subprocess.run(["plymouth-set-default-theme", "details", "-R"], check=False)
+
+def configure_kanshi():
+    """Configure Kanshi display orientation--Always overwrite for known single display"""
+    print("\n--- Configuring Display Orientation ---")
+
+    os.makedirs(KANSHI_DIR, exist_ok=True)
+
+    with open(KANSHI_PATH, "w") as f:
+        f.write(KANSHI_CONTENT)
+
+def configure_autostart():
+    """Writes system-wide autostart from canonical constant."""
+    print("\n--- Configuring Autostart ---")
+
+    os.makedirs(AUTOSTART_DIR, exist_ok=True)
+
+    if os.path.exists(AUTOSTART_PATH):
+        with open(AUTOSTART_PATH, "r") as f:
+            existing = f.readlines()
+        if existing == AUTOSTART_LINES:
+            print("Idempotency Check: autostart already correct.")
+            return
+        shutil.copy2(AUTOSTART_PATH, f"{AUTOSTART_PATH}.bak")
+
+    with open(AUTOSTART_PATH, "w") as f:
+        f.writelines(AUTOSTART_LINES)
+    print("Written: autostart")
+
+def configure_autologin():
+    """Configure pi to autologin kiosk user"""
+    print("\n--- Configuring Autologin User (lightdm.conf) ---")
+
+    if not os.path.exists(AUTOLOGIN_PATH):
+        print(f"Error: {AUTOLOGIN_PATH} not found.")
+        sys.exit(1)
+
+    with open(AUTOLOGIN_PATH, "r") as f:
+        lines = f.read().splitlines()
+
+    modified = False
+    new_lines = []
+    resolved_targets = {t["exact_line"]: False for t in AUTOLOGIN_TARGETS}
+
+    for line in lines:
+        matched_any_target = False
+
+        for target in AUTOLOGIN_TARGETS:
+            regex = rf"^\s*#*\s*{target['pattern']}\s*$"
+            if re.match(regex, line):
+                if line.strip() == target["exact_line"]:
+                    new_lines.append(line)
+                else:
+                    new_lines.append(target["exact_line"])
+                    print(f"Corrected/Uncommented: {target['exact_line']}")
+                    modified = True
+
+                resolved_targets[target["exact_line"]] = True
+                matched_any_target = True
+                break
+
+        if not matched_any_target:
+            new_lines.append(line)
+
+    for target in AUTOLOGIN_TARGETS:
+        if not resolved_targets[target["exact_line"]]:
+            new_lines.append(target["exact_line"])
+            print(f"Appended missing configuration: {target['exact_line']}")
+            modified = True
+
+    if modified:
+        shutil.copy2(AUTOLOGIN_PATH, f"{AUTOLOGIN_PATH}.bak")
+        with open(AUTOLOGIN_PATH, "w") as f:
+            f.write("\n".join(new_lines) + "\n")
+        print("Successfully updated lightdm.conf.")
+    else:
+        print("Idempotency Check: lightdm.conf configurations are already perfectly set.")
+
 
 def setup_environment():
     """Idempotently manages users, groups, and logs with native Python lookups."""
@@ -160,39 +262,11 @@ def setup_environment():
 
     # 4. Legacy OS Notification Removal
     print("Removing graphical battery/power warning notifications...")
-    subprocess.run(["sudo", "apt-get", "remove", "-y", "lxplug-ptbatt"], check=False)
+    subprocess.run(["apt-get", "remove", "-y", "lxplug-ptbatt"], check=False)
 
     # 5. System Optimization & Cleanup
     print("Cleaning up unused system packages...")
     subprocess.run(["apt-get", "autoremove", "-y"], check=False)
-
-    # 6. Modern OS Wayland Notification Removal
-    wayfire_config = f"/home/{TARGET_USER}/.config/wf-panel-pi.ini"
-
-    if os.path.exists(wayfire_config):
-        print("Modifying Wayland taskbar configurations to hide power plugin warnings...")
-        with open(wayfire_config, "r") as f:
-            wf_lines = f.read().splitlines()
-    
-        wf_modified = False
-        new_wf_lines = []
-    
-        for wf_line in wf_lines:
-            # If the top panel's right-side widgets include the power indicator, remove it
-            if "widgets_right" in wf_line and "power" in wf_line:
-                # Rebuild the widget list completely stripping out 'power'
-                widgets = [w.strip() for w in wf_line.split("=")[1].split() if w.strip() != "power"]
-                new_wf_lines.append(f"widgets_right = {' '.join(widgets)}")
-                wf_modified = True
-                print("Removed 'power' notification widget from the Wayland panel.")
-            else:
-                new_wf_lines.append(wf_line)
-            
-        if wf_modified:
-            with open(wayfire_config, "w") as f:
-                f.write("\n".join(new_wf_lines) + "\n")
-            # Keep ownership aligned to the kiosk user
-            os.chown(wayfire_config, kiosk_uid, kiosk_gid)
 
 
 def deploy_application_files():
@@ -219,7 +293,10 @@ if __name__ == "__main__":
         sys.exit(1)
 
     configure_hardware()
-    configure_boot_splash()
+    configure_boot()
+    configure_kanshi()
+    configure_autostart()
+    configure_autologin()
     setup_environment()
     deploy_application_files()
     
