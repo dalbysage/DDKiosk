@@ -9,10 +9,10 @@ import subprocess
 
 CONFIG_PATH = "/boot/firmware/config.txt"
 CMDLINE_PATH = "/boot/firmware/cmdline.txt"
-KANSHI_DIR = "/etc/xdg/kanshi"
-KANSHI_PATH = "/etc/xdg/kanshi/config"
+KANSHI_DIR = "/home/kiosk/.config/kanshi/"
+KANSHI_PATH = "/home/kiosk/.config/kanshi/config"
 AUTOSTART_DIR = "/etc/xdg/labwc"
-AUTOSTART_PATH = "/etc/xdg/labwc/autostart"
+AUTOSTART_PATH = "/home/kiosk/.config/labwc/autostart
 AUTOLOGIN_PATH = "/etc/lightdm/lightdm.conf"
 
 TARGET_USER = "kiosk"
@@ -49,7 +49,7 @@ AUTOSTART_LINES = [
     "/usr/bin/lwrespawn /usr/bin/wf-panel-pi &\n",
     "/usr/bin/kanshi &\n",
     "sleep 2\n",
-    "/usr/bin/python3 /home/kiosk/kiosk.py &\n"
+    "/usr/bin/python3 /home/kiosk/ui.py &\n"
 ]
 
 AUTOLOGIN_TARGETS = [
