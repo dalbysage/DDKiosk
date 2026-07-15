@@ -72,7 +72,7 @@ class KioskApp:
         self.phone    = ""          # confirmed phone from screen 1
 
         self._build_ui()
-        #self.show_phone_screen()
+        self.show_phone_screen()
 
 #################################
 #  DEBUG 
@@ -139,6 +139,81 @@ class KioskApp:
                            bg=bg, fg=fg, relief="flat", cursor="hand2")
             btn.place(x=1, y=1, width=BTN_W - 2, height=BTN_H - 2)
 
+            # bind touch/click
+            btn.bind("<ButtonPress-1>",
+                     lambda e, l=label, b=btn, ob=bg: self._on_press(l, b, ob))
+            self._buttons[label] = (btn, bg)
+
+    # ── Button interaction ────────────────────────────────────────────────────
+
+    def _on_press(self, label: str, btn: Label, original_bg: str):
+        """Flash button then handle input."""
+        btn.config(bg=PRESS_BG)
+        self.tkWindow.after(120, lambda: btn.config(bg=original_bg))
+        self._reset_timeout()
+        self._handle_key(label)
+
+    def _handle_key(self, label: str):
+        if label == "DEL":
+            self.digits = self.digits[:-1]
+        elif label == "ENT":
+            self._on_enter()
+            return
+        else:
+            max_len = 10 if self._screen == "phone" else 6
+            if len(self.digits) < max_len:
+                self.digits += label
+        self._update_display()
+
+    def _on_enter(self):
+        if self._screen == "phone":
+            if len(self.digits) == 10:
+                self._verify_user()
+            else:
+                self._show_msg("Please enter your full 10-digit phone number.", error=True)
+        elif self._screen == "pin":
+            if len(self.digits) >= 4:
+                self._verify_pin()
+            else:
+                self._show_msg("PIN must be at least 4 digits.", error=True)
+
+    # ── Display update ────────────────────────────────────────────────────────
+
+    def _update_display(self):
+        if self._screen == "phone":
+            self.lbl_display.config(text=format_phone(self.digits))
+        elif self._screen == "pin":
+            self.lbl_display.config(text=mask_pin(self.digits))
+
+    def _show_msg(self, text: str, error: bool = True):
+        color = MSG_ERR_FG if error else MSG_OK_FG
+        self.lbl_msg.config(text=text, fg=color)
+
+    def _clear_msg(self):
+        self.lbl_msg.config(text="")
+
+    # ── Idle timeout ──────────────────────────────────────────────────────────
+
+    def _reset_timeout(self):
+        if self.timeout:
+            self.tkWindow.after_cancel(self.timeout)
+        self.timeout = self.tkWindow.after(TIMEOUT_MS, self._on_timeout)
+
+    def _on_timeout(self):
+        logger.info("Idle timeout — returning to phone screen")
+        self.show_phone_screen()
+
+    # ── Screens ───────────────────────────────────────────────────────────────
+
+    def show_phone_screen(self):
+        self._screen  = "phone"
+        self.digits   = ""
+        self.phone    = ""
+        self._clear_msg()
+        self.lbl_title.config(text="Welcome")
+        self.lbl_hint.config(text="Enter your phone number")
+        self.lbl_display.config(text=format_phone(""))
+        self._reset_timeout()
 
 ######################################
 # Main Loop
