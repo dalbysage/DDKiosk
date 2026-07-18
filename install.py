@@ -248,6 +248,14 @@ def setup_environment():
     subprocess.run(["apt-get", "autoremove", "-y"], check=False)
 
 
+def install_ddutils(version):
+    subprocess.run([
+        "sudo", "pip", "install",
+        "--no-cache-dir",
+        "--break-system-packages",
+        f"ddutils @ https://github.com/dalbysage/DDUtils/archive/refs/tags/{version}.tar.gz",
+    ], check=True)
+
 def deploy_application_files():
     """Safely copies project files and ensures the kiosk user owns them."""
     print("\n--- Deploying Application Files ---")
@@ -277,6 +285,7 @@ if __name__ == "__main__":
     configure_autostart()
     configure_autologin()
     setup_environment()
+    install_ddutils("v0.1.0")
     deploy_application_files()
     
     print("\nDeployment complete! Please reboot the Raspberry Pi to apply boot configurations.")

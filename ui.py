@@ -1,6 +1,11 @@
-from tkinter import *
+import signal
+import json
+import pathlib
+import sys
+import ddutils
+import tkinter
 
-# Define UI Constants
+# ---- Define UI Constants -------------------------------------
 BG          = "#ffffff"
 BTN_BG      = "#f5f5f5"
 BTN_FG      = "#111111"
@@ -31,10 +36,50 @@ BTN_W       = 120           # button width px
 GAP         = 20            # gap between buttons
 MARGIN      = 40            # left/right margin
 
-#########################################
-# Helper Functions
-#########################################
+# ---- Configuration -------------------------------------------
+CONFIG_FILE = pathlib.Path(__file__).parent / "kiosk.cfg"
 
+def request_reload(signum, frame):
+    global _reload_requested
+    _reload_requested = True
+
+def reload_log_level():
+    global _reload_requested
+    if _reload_requested:
+        _reload_requested = False
+        try:
+            with open(CONFIG_FILE) as f:
+                cfg = json.load(f)
+            new_level = cfg.get("LOG_LEVEL", "WARNING")
+            logger.setLevel(new_level)
+            logger.warning(f"Log level reloaded to {new_level}")
+        except (FileNotFoundError, PermissionError, json.JSONDecodeError) as e:
+            logger.error(f"SIGHUP reload failed, keeping current level: {e}")
+    tkWindow.after(1000, reload_log_level)
+
+def parse_config_file():
+    try:
+        with open(CONFIG_FILE) as f:
+            cfg = json.load(f)
+    except FileNotFoundError:
+        print(f"CRITICAL: Config file not found: {CONFIG_FILE}", file=sys.stderr)
+        sys.exit(1)
+    except PermissionError:
+        print(f"CRITICAL: Permission denied reading config file: {CONFIG_FILE}", file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"CRITICAL: Config file is corrupt or invalid JSON: {CONFIG_FILE}  — {e}", file=sys.stderr)
+        sys.exit(1)
+
+    required_keys = ["MODULE_NAME", "LOG_LEVEL", "LOG_FILE", "URL"]
+    missing = [k for k in required_keys if k not in cfg]
+    if missing:
+        print(f"CRITICAL: Missing required config keys: {missing}", file=sys.stderr)
+        sys.exit(1)
+
+    return cfg
+
+# ---- Helper Functions ----------------------------------------
 def format_phone(digits: str) -> str:
     """Format up to 10 digit string as (###) ###-####."""
     d = digits[:10]
@@ -50,11 +95,9 @@ def mask_pin(digits: str) -> str:
     empty  = "_" * (6 - len(digits))
     return f"{filled}{empty}"
 
-#########################################
-# Main Application
-#########################################
+# ---- Main Application ----------------------------------------
 class KioskApp:
-    def __init__(self, tkWindow: Tk):
+    def __init__(self, tkWindow: tkinter.Tk):
         self.tkWindow = tkWindow
         tkWindow.title('Gate Access')
         width = tkWindow.winfo_screenwidth()
@@ -71,45 +114,35 @@ class KioskApp:
         self.digits   = ""          # current entry buffer
         self.phone    = ""          # confirmed phone from screen 1
 
+        # Bind escape key to destroy window for safety during debugging.
+        # Run code with -O flag (python -O exe.py) to strip
+        if __debug__:
+            def close_win(event=None):
+                tkWindow.destroy()
+            tkWindow.bind('<Escape>', close_win)
+
+        # Instantiate UI
         self._build_ui()
         self.show_phone_screen()
-
-#################################
-#  DEBUG 
-#################################
-
-# Bind escape key to destroy window for safety during debugging.
-
-        def close_win(event=None):
-            tkWindow.destroy()
-
-        tkWindow.bind('<Escape>', close_win)
-
-# Extra Safety kill kiosk after 5s for testing
-        #tkWindow.after(15000, tkWindow.destroy)
-
-#################################
-#  END DEBUG 
-#################################
 
     def _build_ui(self):
         """Build all widgets once; show/hide screens by reconfiguring them."""
         tkWindow = self.tkWindow
 
         # Title
-        self.lbl_title = Label(tkWindow, text="***Title***", font=FONT_TITLE, bg=BG, fg=BTN_FG)
+        self.lbl_title = tkinter.Label(tkWindow, text="***Title***", font=FONT_TITLE, bg=BG, fg=BTN_FG)
         self.lbl_title.place(x=0, y=50, width=480)
 
         # Hint
-        self.lbl_hint = Label(tkWindow, text="***Hint***", font=FONT_HINT, bg=BG, fg=HINT_FG)
+        self.lbl_hint = tkinter.Label(tkWindow, text="***Hint***", font=FONT_HINT, bg=BG, fg=HINT_FG)
         self.lbl_hint.place(x=0, y=90, width=480)
 
         # Display field
-        self.lbl_display = Label(tkWindow, text="", font=FONT_DIGIT, bg=DISPLAY_BG, fg=DISPLAY_FG, relief="flat", anchor="center")
+        self.lbl_display = tkinter.Label(tkWindow, text="", font=FONT_DIGIT, bg=DISPLAY_BG, fg=DISPLAY_FG, relief="flat", anchor="center")
         self.lbl_display.place(x=MARGIN, y=130, width=400, height=70)
 
         # Message line (feedback below display)
-        self.lbl_msg = Label(tkWindow, text="***Feedback***", font=FONT_MSG, bg=BG, fg=MSG_ERR_FG)
+        self.lbl_msg = tkinter.Label(tkWindow, text="***Feedback***", font=FONT_MSG, bg=BG, fg=MSG_ERR_FG)
         self.lbl_msg.place(x=0, y=210, width=480)
 
         # Keypad buttons — build grid, store refs for flash
@@ -133,9 +166,9 @@ class KioskApp:
                 bg, fg, border = BTN_BG, BTN_FG, BTN_BORDER
                 text, font = label, FONT_KEY
 
-            frame = Frame(tkWindow, bg=border)
+            frame = tkinter.Frame(tkWindow, bg=border)
             frame.place(x=x, y=y, width=BTN_W, height=BTN_H)
-            btn = Label(frame, text=text, font=font,
+            btn = tkinter.Label(frame, text=text, font=font,
                            bg=bg, fg=fg, relief="flat", cursor="hand2")
             btn.place(x=1, y=1, width=BTN_W - 2, height=BTN_H - 2)
 
@@ -144,9 +177,8 @@ class KioskApp:
                      lambda e, l=label, b=btn, ob=bg: self._on_press(l, b, ob))
             self._buttons[label] = (btn, bg)
 
-    # ── Button interaction ────────────────────────────────────────────────────
-
-    def _on_press(self, label: str, btn: Label, original_bg: str):
+# ---- Button Interaction --------------------------------------
+    def _on_press(self, label: str, btn: tkinter.Label, original_bg: str):
         """Flash button then handle input."""
         btn.config(bg=PRESS_BG)
         self.tkWindow.after(120, lambda: btn.config(bg=original_bg))
@@ -177,8 +209,7 @@ class KioskApp:
             else:
                 self._show_msg("PIN must be at least 4 digits.", error=True)
 
-    # ── Display update ────────────────────────────────────────────────────────
-
+# ---- Display Update ------------------------------------------
     def _update_display(self):
         if self._screen == "phone":
             self.lbl_display.config(text=format_phone(self.digits))
@@ -192,8 +223,7 @@ class KioskApp:
     def _clear_msg(self):
         self.lbl_msg.config(text="")
 
-    # ── Idle timeout ──────────────────────────────────────────────────────────
-
+# ---- Idle Timeout --------------------------------------------
     def _reset_timeout(self):
         if self.timeout:
             self.tkWindow.after_cancel(self.timeout)
@@ -203,8 +233,7 @@ class KioskApp:
         logger.info("Idle timeout — returning to phone screen")
         self.show_phone_screen()
 
-    # ── Screens ───────────────────────────────────────────────────────────────
-
+# ---- Screens -------------------------------------------------
     def show_phone_screen(self):
         self._screen  = "phone"
         self.digits   = ""
@@ -215,10 +244,21 @@ class KioskApp:
         self.lbl_display.config(text=format_phone(""))
         self._reset_timeout()
 
-######################################
-# Main Loop
-######################################
+# ---- Main Loop -----------------------------------------------
 if __name__ == "__main__":
-    tkWindow = Tk()
+    cfg = parse_config_file()
+    logger = ddutils.setup_logging(
+        log_file=cfg["LOG_FILE"],
+        name=cfg["MODULE_NAME"],
+        level=cfg["LOG_LEVEL"],
+    )
+    logger.info("Config loaded and logging initialized")
+
+    _reload_requested = False
+    signal.signal(signal.SIGHUP, request_reload)
+
+    tkWindow = tkinter.Tk()
     app = KioskApp(tkWindow)
+    reload_log_level()
     tkWindow.mainloop()
+
