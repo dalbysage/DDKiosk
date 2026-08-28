@@ -262,7 +262,7 @@ class KioskApp:
         self._screen = "result"
         if granted:
             self.lbl_title.config(text="Access Granted")
-            self.lbl_hint.config(text="Door is unlocked")
+            self.lbl_hint.config(text="Gate Opening...")
             self._show_msg("", error=False)
         else:
             self.lbl_title.config(text="Access Denied")
@@ -319,13 +319,14 @@ class KioskApp:
         try:
             resp = requests.post(
                 f"{cfg['URL']}/verify-pin",
-                json={"phone": self.phone, "pin": pin, "door": DOOR_ID},
+                json={"phone": self.phone, "pin": pin},#, "kiosk": cfg['KIOSK']}, TODO add random kiosk_id to config as part of install
                 timeout=5
             )
+            logger.debug("verify-pin response: {resp}")
             data = resp.json()
-            granted = resp.ok and data.get("access") == "granted"
+            granted = resp.ok #and data.get("access") == "granted"
             logger.info(
-                f"Access {'granted' if granted else 'denied'} for {self.phone} at {DOOR_ID}")
+                f"Access {'granted' if granted else 'denied'} for {self.phone} at cfg['KIOSK']")
             self.tkWindow.after(0, lambda: self.show_result_screen(granted))
 
         except requests.exceptions.ConnectionError:
