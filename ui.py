@@ -1,9 +1,14 @@
+#!/usr/bin/env python3
 import signal
 import json
 import pathlib
 import sys
 import ddutils
 import tkinter
+import threading
+import requests
+import logging
+import logging.handlers
 
 # ---- Define UI Constants -------------------------------------
 BG          = "#ffffff"
@@ -200,7 +205,7 @@ class KioskApp:
     def _on_enter(self):
         if self._screen == "phone":
             if len(self.digits) == 10:
-                self._verify_user()
+                self._verify_phone()
             else:
                 self._show_msg("Please enter your full 10-digit phone number.", error=True)
         elif self._screen == "pin":
@@ -230,7 +235,7 @@ class KioskApp:
         self.timeout = self.tkWindow.after(TIMEOUT_MS, self._on_timeout)
 
     def _on_timeout(self):
-        logger.info("Idle timeout — returning to phone screen")
+        logger.debug("Idle timeout — returning to phone screen")
         self.show_phone_screen()
 
 # ---- Screens -------------------------------------------------
@@ -243,6 +248,102 @@ class KioskApp:
         self.lbl_hint.config(text="Enter your phone number")
         self.lbl_display.config(text=format_phone(""))
         self._reset_timeout()
+
+    def show_pin_screen(self, first_name: str):
+        self._screen = "pin"
+        self.digits  = ""
+        self._clear_msg()
+        self.lbl_title.config(text=f"Hello, {first_name}")
+        self.lbl_hint.config(text="Enter your PIN")
+        self.lbl_display.config(text=mask_pin(""))
+        self._reset_timeout()
+
+    def show_result_screen(self, granted: bool):
+        self._screen = "result"
+        if granted:
+            self.lbl_title.config(text="Access Granted")
+            self.lbl_hint.config(text="Door is unlocked")
+            self._show_msg("", error=False)
+        else:
+            self.lbl_title.config(text="Access Denied")
+            self.lbl_hint.config(text="Please try again or contact support")
+            self._show_msg("", error=True)
+        # Return to phone screen after 3 seconds
+        self.tkWindow.after(3_000, self.show_phone_screen)
+
+# ---- API Calls -----------------------------------------------
+    def _verify_phone(self):
+        self.phone = self.digits
+        self._show_msg("Checking…", error=False)
+        threading.Thread(target=self._do_verify_phone, daemon=True).start()
+
+    def _do_verify_phone(self):
+        try:
+            resp = requests.post(
+                f"{cfg['URL']}/verify-phone",
+                json={"phone": self.phone},
+                timeout=5
+            )
+            data = resp.json()
+            if resp.ok: #and data.get("found"):
+                first = data.get("first_name", "")
+                logger.info(f"User found: {self.phone}")
+                self.tkWindow.after(0, lambda: self._clear_msg())
+                self.tkWindow.after(0, lambda: self.show_pin_screen(first))
+            else:
+                logger.warning(f"Unknown phone: {self.phone}")
+                self.tkWindow.after(0, lambda: self._show_msg(
+                    "Phone number not recognised.", error=True))
+                self.tkWindow.after(0, lambda: self._reset_display())
+
+        except requests.exceptions.ConnectionError:
+            logger.error("verify-phone: connection error")
+            self.tkWindow.after(0, lambda: self._show_msg(
+                "Network unavailable. Please try again.", error=True))
+        except requests.exceptions.Timeout:
+            logger.error("verify-phone: timeout")
+            self.tkWindow.after(0, lambda: self._show_msg(
+                "Server not responding. Please try again.", error=True))
+        except Exception as e:
+            logger.error(f"verify-phone unexpected error: {type(e).__name__}: {e}")
+            self.tkWindow.after(0, lambda: self._show_msg(
+                "Unexpected error. Please try again.", error=True))
+
+    def _verify_pin(self):
+        pin = self.digits
+        self._show_msg("Verifying…", error=False)
+        threading.Thread(
+            target=self._do_verify_pin, args=(pin,), daemon=True).start()
+
+    def _do_verify_pin(self, pin: str):
+        try:
+            resp = requests.post(
+                f"{cfg['URL']}/verify-pin",
+                json={"phone": self.phone, "pin": pin, "door": DOOR_ID},
+                timeout=5
+            )
+            data = resp.json()
+            granted = resp.ok and data.get("access") == "granted"
+            logger.info(
+                f"Access {'granted' if granted else 'denied'} for {self.phone} at {DOOR_ID}")
+            self.tkWindow.after(0, lambda: self.show_result_screen(granted))
+
+        except requests.exceptions.ConnectionError:
+            logger.error("verify-pin: connection error")
+            self.tkWindow.after(0, lambda: self._show_msg(
+                "Network unavailable. Please try again.", error=True))
+        except requests.exceptions.Timeout:
+            logger.error("verify-pin: timeout")
+            self.tkWindow.after(0, lambda: self._show_msg(
+                "Server not responding. Please try again.", error=True))
+        except Exception as e:
+            logger.error(f"verify-pin unexpected error: {type(e).__name__}: {e}")
+            self.tkWindow.after(0, lambda: self._show_msg(
+                "Unexpected error. Please try again.", error=True))
+
+    def _reset_display(self):
+        self.digits = ""
+        self._update_display()
 
 # ---- Main Loop -----------------------------------------------
 if __name__ == "__main__":

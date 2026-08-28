@@ -271,6 +271,8 @@ def deploy_application_files():
         destination = os.path.join(HOME_DIR, file_name)
         shutil.copy2(file_name, destination)
         os.chown(destination, kiosk_uid, kiosk_gid)
+        if "py" == file_name[-2:]:
+            os.chmod(destination, 0o744)
         print(f"Deployed: {file_name} -> {destination} (Owner: {TARGET_USER})")
 
 

@@ -2,3 +2,24 @@ lockdown kiosk
 gracefully handle exceptions to keep kiosk running
 user interface
 Add Stepper Code
+
+For API into production make following changes:
+{
+    "url": "https://api.yourdomain.com",  // https, no port (443 is implied)
+    "verify_ssl": true
+    "connect_timeout": 5,
+    "read_timeout": 10
+}
+
+# dev - might use self-signed cert or no cert
+resp = requests.post(url, json={...}, timeout=5, verify=False)
+
+# production - verify the certificate chain
+resp = requests.post(url, json={...}, timeout=5, verify=True)
+
+verify_ssl = cfg.get("verify_ssl", True)
+resp = requests.post(url, json={...}, timeout=5, verify=verify_ssl)
+
+timeout = (cfg.get("connect_timeout", 5), cfg.get("read_timeout", 10))
+resp = requests.post(url, json={...}, timeout=timeout)
+
